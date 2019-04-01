@@ -18,11 +18,11 @@ Compiling
 
 * Clone this repository:
 
-        git clone https://github.com/ttencate/attolytics
+        $ git clone https://github.com/ttencate/attolytics
 
 * Compile the binary:
 
-        cargo build
+        $ cargo build
 
 Running
 -------
@@ -31,10 +31,17 @@ Running
 
 * Create a database, e.g. owned by your current user and named `attolytics`:
 
-        createdb -o $(whoami) attolytics
+        $ createdb -o $(whoami) attolytics
 
-* Create a table to contain your analytics events. It must have a column named
-  `app_id` of type `VARCHAR`. Everything else is up to you! For example:
+* Create a table to contain your analytics events. Which columns it contains is
+  up to you! For example:
 
-        psql attolytics
-        attolytics=> 
+        $ psql attolytics
+        attolytics=> create table events (timestamp bigint, event_type varchar not null);
+
+* Create a configuration file, typically named `attolytics.conf.yaml`. See
+  `example.conf.yaml` for a documented example of the format.
+
+* Run the executable, passing it the location of your configuration file:
+
+        $ ./target/debug/attolytics --config ./attolytics.conf.yaml

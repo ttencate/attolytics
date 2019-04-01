@@ -52,7 +52,7 @@ impl<'de> Deserialize<'de> for JsonValue {
 
 impl JsonValue {
     #[inline(always)]
-    fn into_inner(self) -> serde_json::Value {
+    pub fn into_inner(self) -> serde_json::Value {
         self.0
     }
 }
@@ -99,7 +99,7 @@ impl<'a> Responder<'a> for JsonValue {
 impl FromDataSimple for JsonValue {
     type Error = JsonError;
 
-    fn from_data(request: &Request, data: Data) -> rocket::data::Outcome<Self, Self::Error> {
+    fn from_data(_request: &Request, data: Data) -> rocket::data::Outcome<Self, Self::Error> {
         let mut string = String::new();
         if let Err(err) = data.open().read_to_string(&mut string) {
             return Outcome::Failure((Status::InternalServerError, err.into()));
