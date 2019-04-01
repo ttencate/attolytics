@@ -1,0 +1,27 @@
+# Connection information for the Postgres database.
+database:
+  host: localhost
+  port: 5432
+  user: myuser
+  password: mypassword
+  database: attolytics
+
+# The list of apps that send data into Attolytics.
+apps:
+
+  # Each app is identified by a unique string. 
+  - app_id: com.example.myapp
+
+    # A random string key sent by the app with every request. This doesn't
+    # provide ironclad security, because anyone who has the app can reverse
+    # engineer the key out of it, or simply intercept it on the wire.
+    #
+    # A way to generate it is the apg tool:
+    #
+    #     $ apg -m32 -x32 -n1 -a1 -Mncl
+    app_secret_key: n6MrfBnXcB7pIEeKdiCBmT8AqLEmtfUO
+
+    # A list of event types for this app. Each event type corresponds to a
+    # Postgres table.
+    event_types:
+      - event_type_id: game_events

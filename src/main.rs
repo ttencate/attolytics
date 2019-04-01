@@ -25,8 +25,8 @@ mod jsonvalue;
 
 // TODO restrict POST body size to prevent DoS attacks
 
-#[post("/apps/<app_id>/<type_id>", format = "application/json", data = "<data>")]
-fn post_event(app_id: String, type_id: String, data: JsonValue, config: State<Config>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
+#[post("/apps/<app_id>/events/<event_type_id>", format = "application/json", data = "<data>")]
+fn post_event(app_id: String, event_type_id: String, data: JsonValue, config: State<Config>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
     let data = data.into_inner();
 
     let app = config.apps.get(&app_id)
@@ -35,7 +35,7 @@ fn post_event(app_id: String, type_id: String, data: JsonValue, config: State<Co
         return Err(Status::Forbidden);
     }
 
-    let event_type = app.event_types.get(&type_id)
+    let event_type = app.event_types.get(&event_type_id)
         .ok_or(Status::NotFound)?;
 
     let conn = db_conn_pool.get()
@@ -178,15 +178,15 @@ fn main() {
     for app in config_yaml["apps"].as_vec().unwrap_or(&vec![]) {
         let app_id = app["app_id"].as_str()
             .unwrap_or_else(|| panic!("no app_id specified for app"));
-        let secret_key = app["secret_key"].as_str()
+        let secret_key = app["app_secret_key"].as_str()
             .unwrap_or_else(|| panic!("no secret_key specified for app {}", app_id));
         let mut event_types = HashMap::new();
         for event in app["event_types"].as_vec().unwrap_or(&vec![]) {
-            let type_id = event["type_id"].as_str()
+            let event_type_id = event["event_type_id"].as_str()
                 .unwrap_or_else(|| panic!("event type with no type_id specified for app {}", app_id));
-            let event_type = EventType::new(&conn, type_id)
-                .unwrap_or_else(|err| panic!("error creating event type {}: {}", type_id, err));
-            event_types.insert(type_id.to_string(), event_type);
+            let event_type = EventType::new(&conn, event_type_id)
+                .unwrap_or_else(|err| panic!("error creating event type {}: {}", event_type_id, err));
+            event_types.insert(event_type_id.to_string(), event_type);
         }
         apps.insert(app_id.to_string(), App {
             app_id: app_id.to_string(),
