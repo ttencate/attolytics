@@ -33,14 +33,9 @@ Running
 
         $ createdb -o $(whoami) attolytics
 
-* Create a table to contain your analytics events. Which columns it contains is
-  up to you! For example:
-
-        $ psql attolytics
-        attolytics=> create table game_events (timestamp bigint not null, event_type varchar not null, score bigint);
-
 * Create a configuration file, typically named `attolytics.conf.yaml`. See
-  `example.conf.yaml` for a documented example of the format.
+  [`example.conf.yaml`](example.conf.yaml) for a documented example of the
+  format.
 
 * Run the executable, passing it the location of your configuration file:
 
