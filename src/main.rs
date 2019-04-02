@@ -3,10 +3,10 @@
 
 #[macro_use] extern crate rocket;
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
+use std::collections::HashSet;
 
 use clap::Arg;
 use itertools::Itertools;
@@ -15,18 +15,19 @@ use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::http::Status;
 use rocket::State;
-use url::Url;
-use yaml_rust::{Yaml, YamlLoader};
 
 use jsonvalue::JsonValue;
+use config::{Config, Table, Column};
 use postgres::Connection;
+use std::process::exit;
 
+mod config;
 mod jsonvalue;
 
 // TODO restrict POST body size to prevent DoS attacks
 
-#[post("/apps/<app_id>/events/<event_type_id>", format = "application/json", data = "<data>")]
-fn post_event(app_id: String, event_type_id: String, data: JsonValue, config: State<Config>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
+#[post("/apps/<app_id>/events", format = "application/json", data = "<data>")]
+fn post_event(app_id: String, data: JsonValue, config: State<Config>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
     let data = data.into_inner();
 
     let app = config.apps.get(&app_id)
@@ -35,105 +36,54 @@ fn post_event(app_id: String, event_type_id: String, data: JsonValue, config: St
         return Err(Status::Forbidden);
     }
 
-    let event_type = app.event_types.get(&event_type_id)
-        .ok_or(Status::NotFound)?;
+    // TODO don't insert anything until we've verified the entire request (use db transaction?)
 
     let conn = db_conn_pool.get()
         .map_err(|err| {
             println!("error connecting to database: {}", err);
             Status::InternalServerError
         })?;
-    event_type.insert(&conn, &data)
-        .map_err(|err| {
-            println!("error inserting event into database: {}", err);
-            Status::InternalServerError
-        })?;
+
+    for event in data["events"].as_array().ok_or_else(|| Status::BadRequest)? {
+        let table_name = event["_t"].as_str()
+            .ok_or(Status::BadRequest)?
+            .to_owned();
+        if !app.tables.contains(&table_name) {
+            return Err(Status::NotFound);
+        }
+        let table = config.tables.get(&table_name)
+            .ok_or(Status::NotFound)?;
+        insert_event(&table, &conn, &event)
+            .map_err(|err| {
+                println!("error inserting event into database: {}", err);
+                Status::InternalServerError
+            })?;
+    }
 
     Ok("".to_owned())
 }
 
-fn read_yaml_file(file_name: &str) -> Result<Yaml, Box<Error>> {
+fn insert_event(table: &Table, conn: &Connection, json: &serde_json::Value) -> Result<(), Box<Error>> {
+    let query = format!(r#"INSERT INTO "{}" ({}) VALUES ({})"#,
+        table.name,
+        table.columns.iter().map(|column| format!(r#""{}""#, column.name)).join(", "),
+        (1..=table.columns.len()).map(|idx| format!("${}", idx)).join(", "));
+    let values: Vec<Box<ToSql>> = table.columns.iter()
+        .map(|column| json_to_sql(&json[&column.name], column))
+        .collect();
+    println!("{} {:?}", query, values);
+    conn.execute(&query, &values.iter().map(|v| v.as_ref()).collect::<Vec<&ToSql>>())?;
+    Ok(())
+}
+
+fn read_file(file_name: &str) -> Result<String, std::io::Error> {
     let mut contents = String::new();
     let mut file = File::open(file_name)?;
     file.read_to_string(&mut contents)?;
-    let yaml = YamlLoader::load_from_str(&contents)?;
-    Ok(yaml[0].clone())
+    Ok(contents)
 }
 
-fn db_url(db_config: &Yaml) -> String {
-    let mut url = Url::parse("postgres://").unwrap();
-    url.set_host(Some(db_config["host"].as_str().unwrap_or("localhost"))).unwrap();
-    url.set_port(db_config["port"].as_i64().map(|port| port as u16)).unwrap();
-    url.set_username(db_config["user"].as_str().unwrap_or("")).unwrap();
-    url.set_password(db_config["password"].as_str()).unwrap();
-    url.set_path(&("/".to_owned() + db_config["database"].as_str().unwrap_or(url.username())));
-    url.to_string()
-}
-
-#[derive(Debug)]
-struct Config {
-    apps: HashMap<String, App>
-}
-
-#[derive(Debug)]
-struct App {
-    app_id: String,
-    secret_key: String,
-    event_types: HashMap<String, EventType>,
-}
-
-#[derive(Debug)]
-struct EventType {
-    table_name: String,
-    column_names: Vec<String>,
-    query: String,
-}
-
-impl EventType {
-    pub fn new(conn: &Connection, table_name: &str) -> Result<EventType, Box<Error>> {
-        //https://stackoverflow.com/questions/20194806/how-to-get-a-list-column-names-and-datatype-of-a-table-in-postgresql
-        let rows = conn.query(r#"
-            SELECT
-                a.attname as "column_name"
-            FROM
-                pg_catalog.pg_attribute a
-            WHERE
-                a.attnum > 0
-                AND NOT a.attisdropped
-                AND a.attrelid = (
-                    SELECT c.oid
-                    FROM pg_catalog.pg_class c
-                    LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                    WHERE c.relname = $1
-                    AND pg_catalog.pg_table_is_visible(c.oid)
-                )
-            "#,
-            &[&table_name])?;
-        let column_names: Vec<String> = rows.iter().map(|row| row.get(0)).collect();
-        let query = format!(r#"INSERT INTO "{}" ({}) VALUES ({})"#,
-            table_name,
-            column_names.iter().map(|column| format!(r#""{}""#, column)).join(", "),
-            (1..=column_names.len()).map(|idx| format!("${}", idx)).join(", "));
-        Ok(EventType {
-            table_name: String::from(table_name),
-            column_names,
-            query,
-        })
-    }
-
-    pub fn insert(&self, conn: &Connection, json: &serde_json::Value) -> Result<(), Box<Error>> {
-        let values: Vec<Box<ToSql>> = self.column_names.iter()
-            .map(|column| json_to_sql(&json[column]))
-            .collect();
-        let value_refs: Vec<&ToSql> = values.iter()
-            .map(|v| v.as_ref())
-            .collect();
-        conn.execute(&self.query, &value_refs)?;
-        Ok(())
-    }
-}
-
-fn json_to_sql(json: &serde_json::Value) -> Box<ToSql> {
+fn json_to_sql(json: &serde_json::Value, column: &Column) -> Box<ToSql> {
     use serde_json::Value::*;
     match json {
         Null => Box::new(None as Option<bool>),
@@ -151,7 +101,42 @@ fn json_to_sql(json: &serde_json::Value) -> Box<ToSql> {
     }
 }
 
-fn main() {
+fn create_tables(config: &Config, conn: &Connection) -> Result<(), postgres::Error> {
+    let existing_tables = conn.query(r#"
+        SELECT relname
+        FROM pg_catalog.pg_class
+        WHERE pg_catalog.pg_table_is_visible(oid)
+        "#, &[])?
+        .iter()
+        .map(|row| row.get(0))
+        .collect::<HashSet<String>>();
+
+    for table in config.tables.values() {
+        if !existing_tables.contains(&table.name) {
+            conn.execute(&creation_query(table), &[])?;
+        }
+    }
+    Ok(())
+}
+
+fn creation_query(table: &Table) -> String {
+    let columns = table.columns
+        .iter()
+        .map(|column| format!(
+            r#"{} {}{}"#,
+            column.name,
+            column.postgres_type,
+            if column.required { " not null" } else { "" }
+        ))
+        .join(", ");
+    format!(r#"
+        CREATE TABLE "{}" ({})
+        "#, table.name, columns)
+}
+
+struct RunError(String);
+
+fn run() -> Result<(), RunError> {
     let matches = clap::App::new("Attolytics")
         .about("A simple web server that stores analytics events into a database")
         .arg(Arg::with_name("config")
@@ -164,43 +149,34 @@ fn main() {
         .get_matches();
 
     let config_file_name = matches.value_of("config").unwrap();
-    let config_yaml = read_yaml_file(config_file_name)
-        .unwrap_or_else(|err| panic!("failed to read config file {}: {}", config_file_name, err));
+    let config_yaml_str = read_file(config_file_name)
+        .map_err(|err| RunError(format!("failed to read config file {}: {}", config_file_name, err)))?;
+    let config = Config::from_yaml(&config_yaml_str)
+        .map_err(|err| RunError(format!("failed to parse config file {}: {}", config_file_name, err)))?;
 
-    let manager = PostgresConnectionManager::new(db_url(&config_yaml["database"]), TlsMode::None)
-        .unwrap_or_else(|err| panic!("failed to open database: {}", err));
+    let manager = PostgresConnectionManager::new(config.database_url.to_owned(), TlsMode::None)
+        .map_err(|err| RunError(format!("failed to open database: {}", err)))?;
     let db_conn_pool = Pool::new(manager)
-        .unwrap_or_else(|err| panic!("failed to create connection pool: {}", err));
+        .map_err(|err| RunError(format!("failed to create connection pool: {}", err)))?;
+
     let conn = db_conn_pool.get()
-        .unwrap_or_else(|err| panic!("failed to create database connection: {}", err));
+        .map_err(|err| RunError(format!("failed to create database connection: {}", err)))?;
+    create_tables(&config, &conn)
+        .map_err(|err| RunError(format!("failed to create database tables: {}", err)))?;
 
-    let mut apps: HashMap<String, App> = HashMap::new();
-    for app in config_yaml["apps"].as_vec().unwrap_or(&vec![]) {
-        let app_id = app["app_id"].as_str()
-            .unwrap_or_else(|| panic!("no app_id specified for app"));
-        let secret_key = app["app_secret_key"].as_str()
-            .unwrap_or_else(|| panic!("no secret_key specified for app {}", app_id));
-        let mut event_types = HashMap::new();
-        for event in app["event_types"].as_vec().unwrap_or(&vec![]) {
-            let event_type_id = event["event_type_id"].as_str()
-                .unwrap_or_else(|| panic!("event type with no type_id specified for app {}", app_id));
-            let event_type = EventType::new(&conn, event_type_id)
-                .unwrap_or_else(|err| panic!("error creating event type {}: {}", event_type_id, err));
-            event_types.insert(event_type_id.to_string(), event_type);
-        }
-        apps.insert(app_id.to_string(), App {
-            app_id: app_id.to_string(),
-            secret_key: secret_key.to_string(),
-            event_types,
-        });
-    }
-    let config = Config {
-        apps
-    };
-
-    rocket::ignite()
+    let err = rocket::ignite()
         .manage(config)
         .manage(db_conn_pool)
         .mount("/", routes![post_event])
         .launch();
+    Err(RunError(format!("failed to launch web server: {}", err)))
+}
+
+fn main() {
+    if let Err(RunError(msg)) = run() {
+        eprintln!("error: {}", msg);
+        exit(1);
+    } else {
+        exit(0);
+    }
 }

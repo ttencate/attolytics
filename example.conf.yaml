@@ -1,17 +1,40 @@
-# Connection information for the Postgres database.
-database:
-  host: localhost
-  port: 5432
-  user: myuser
-  password: mypassword
-  database: attolytics
+# This is an example configuration file for Attolytics. It is also used by the
+# unit tests.
+
+# Connection URL for the Postgres database. For full documentation of the
+# format, see:
+# https://github.com/sfackler/rust-postgres#connecting
+database_url: postgres://myuser:mypassword@localhost:5432/attolytics
+
+# A list of Postgres tables which are to be created and managed.
+tables:
+  # Each table is keyed by its name. This here creates a table named "events".
+  events:
+    # List of columns in the table. Valid column properties are:
+    # name: the name of the column (required)
+    # type: the Postgres type of the column (required)
+    # indexed: whether an index is created for this field (default false)
+    # required: whether NULL values are forbidden (default false)
+    columns:
+      - name: platform
+        type: varchar
+        indexed: true
+        required: true
+      - name: version
+        type: varchar
+        indexed: true
+        required: true
+      - name: user_id
+        type: varchar
+      - name: event_type
+        type: varchar
+        indexed: true
+        required: true
 
 # The list of apps that send data into Attolytics.
 apps:
-
   # Each app is identified by a unique string. 
-  - app_id: com.example.myapp
-
+  com.example.myapp:
     # A random string key sent by the app with every request. This doesn't
     # provide ironclad security, because anyone who has the app can reverse
     # engineer the key out of it, or simply intercept it on the wire.
@@ -19,9 +42,7 @@ apps:
     # A way to generate it is the apg tool:
     #
     #     $ apg -m32 -x32 -n1 -a1 -Mncl
-    app_secret_key: n6MrfBnXcB7pIEeKdiCBmT8AqLEmtfUO
-
-    # A list of event types for this app. Each event type corresponds to a
-    # Postgres table.
-    event_types:
-      - event_type_id: game_events
+    secret_key: n6MrfBnXcB7pIEeKdiCBmT8AqLEmtfUO
+    # A list of table names (as created above) that this app can send data into.
+    tables:
+      - events

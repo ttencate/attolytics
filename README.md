@@ -52,7 +52,7 @@ REST API
 Events can be inserted into the database by making an HTTP POST request. One
 endpoint exists for every event type of every app:
 
-    POST /apps/<app_id>/events/<event_type_id>
+    POST /apps/<app_id>/events
     Content-Type: application/json
 
     {
@@ -63,11 +63,16 @@ endpoint exists for every event type of every app:
     }
 
 The `events` array contains the events to be uploaded. Each event is an object,
-whose keys match column names in PostgreSQL and whose values are of the correct
-type for those columns. Continuing with the above example of the `game_events`
-table:
+which must contain these fields:
+
+* `_t`: name of the table to insert into
+
+The remainder of the fields must have keys matching column names in PostgreSQL.
+The corresponding values must be of the correct type for those columns.
+
+Continuing with the above example of the `game_events` table:
 
       "events": [
-        {"timestamp": 1554130180, "event_type": "game_start"}
-        {"timestamp": 1554130213, "event_type": "game_end", "score": 42}
+        {"_t": "events", "timestamp": 1554130180, "event_type": "game_start"}
+        {"_t": "events", "timestamp": 1554130213, "event_type": "game_end", "score": 42}
       ]
