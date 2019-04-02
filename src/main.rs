@@ -3,25 +3,22 @@
 
 #[macro_use] extern crate rocket;
 
-use std::collections::HashSet;
 use std::error::Error;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
 use std::process::exit;
 
 use clap::Arg;
-use itertools::{Itertools, process_results};
-use postgres::Connection;
-use postgres::types::ToSql;
 use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::http::Status;
 use rocket::State;
 
-use config::{Config, Table};
+use config::Config;
 use jsonvalue::JsonValue;
+use std::fmt::Display;
 
 mod config;
+mod db;
 mod jsonvalue;
 mod types;
 
@@ -54,7 +51,7 @@ fn post_event(app_id: String, data: JsonValue, config: State<Config>, db_conn_po
         }
         let table = config.tables.get(&table_name)
             .ok_or(Status::NotFound)?;
-        insert_event(&table, &conn, &event)
+        db::insert_event(&table, &conn, &event)
             .map_err(|err| {
                 println!("error inserting event into database: {}", err);
                 Status::InternalServerError
@@ -64,61 +61,16 @@ fn post_event(app_id: String, data: JsonValue, config: State<Config>, db_conn_po
     Ok("".to_owned())
 }
 
-fn insert_event(table: &Table, conn: &Connection, json: &serde_json::Value) -> Result<(), Box<Error>> {
-    let query = format!(r#"INSERT INTO "{}" ({}) VALUES ({})"#,
-        table.name,
-        table.columns.iter().map(|column| format!(r#""{}""#, column.name)).join(", "),
-        (1..=table.columns.len()).map(|idx| format!("${}", idx)).join(", "));
-    let values: Vec<Box<ToSql>> = process_results(
-        table.columns.iter()
-            .map(|column| column.type_.json_to_sql(&column.name, &json[&column.name], column.required)),
-        |iter| iter.collect())?;
-    println!("{} {:?}", query, values);
-    conn.execute(&query, &values.iter().map(|v| v.as_ref()).collect::<Vec<&ToSql>>())?;
-    Ok(())
-}
-
-fn read_file(file_name: &str) -> Result<String, std::io::Error> {
-    let mut contents = String::new();
-    let mut file = File::open(file_name)?;
-    file.read_to_string(&mut contents)?;
-    Ok(contents)
-}
-
-fn create_tables(config: &Config, conn: &Connection) -> Result<(), postgres::Error> {
-    let existing_tables = conn.query(r#"
-        SELECT relname
-        FROM pg_catalog.pg_class
-        WHERE pg_catalog.pg_table_is_visible(oid)
-        "#, &[])?
-        .iter()
-        .map(|row| row.get(0))
-        .collect::<HashSet<String>>();
-
-    for table in config.tables.values() {
-        if !existing_tables.contains(&table.name) {
-            conn.execute(&creation_query(table), &[])?;
-        }
-    }
-    Ok(())
-}
-
-fn creation_query(table: &Table) -> String {
-    let columns = table.columns
-        .iter()
-        .map(|column| format!(
-            r#"{} {}{}"#,
-            column.name,
-            column.type_.postgres_type_name(),
-            if column.required { " not null" } else { "" }
-        ))
-        .join(", ");
-    format!(r#"
-        CREATE TABLE "{}" ({})
-        "#, table.name, columns)
-}
-
+#[derive(Debug)]
 struct RunError(String);
+
+impl Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Error for RunError {}
 
 fn run() -> Result<(), RunError> {
     let matches = clap::App::new("Attolytics")
@@ -133,7 +85,7 @@ fn run() -> Result<(), RunError> {
         .get_matches();
 
     let config_file_name = matches.value_of("config").unwrap();
-    let config_yaml_str = read_file(config_file_name)
+    let config_yaml_str = fs::read_to_string(config_file_name)
         .map_err(|err| RunError(format!("failed to read config file {}: {}", config_file_name, err)))?;
     let config = Config::from_yaml(&config_yaml_str)
         .map_err(|err| RunError(format!("failed to parse config file {}: {}", config_file_name, err)))?;
@@ -145,7 +97,7 @@ fn run() -> Result<(), RunError> {
 
     let conn = db_conn_pool.get()
         .map_err(|err| RunError(format!("failed to create database connection: {}", err)))?;
-    create_tables(&config, &conn)
+    db::create_tables(&config, &conn)
         .map_err(|err| RunError(format!("failed to create database tables: {}", err)))?;
 
     let err = rocket::ignite()

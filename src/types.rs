@@ -42,15 +42,19 @@ impl Display for ConversionError {
 impl Error for ConversionError {}
 
 impl Type {
-    pub fn postgres_type_name(&self) -> &str {
+    pub fn postgres_type_name(&self) -> String {
+        self.postgres_type().name().to_string()
+    }
+
+    pub fn postgres_type(&self) -> postgres::types::Type {
         match self {
-            Type::Bool => "BOOL",
-            Type::I32 => "INTEGER",
-            Type::I64 => "BIGINT",
-            Type::F32 => "REAL",
-            Type::F64 => "DOUBLE PRECISION",
-            Type::String => "VARCHAR",
-            Type::Timestamp => "TIMESTAMP WITH TIME ZONE",
+            Type::Bool => postgres::types::BOOL,
+            Type::I32 => postgres::types::INT4,
+            Type::I64 => postgres::types::INT8,
+            Type::F32 => postgres::types::FLOAT4,
+            Type::F64 => postgres::types::FLOAT8,
+            Type::String => postgres::types::VARCHAR,
+            Type::Timestamp => postgres::types::TIMESTAMPTZ,
         }
     }
 
