@@ -94,6 +94,12 @@ fn parse_example_config() {
                 name: "events".to_string(),
                 columns: vec![
                     Column {
+                        name: "time".to_string(),
+                        type_: Type::Timestamp,
+                        indexed: true,
+                        required: false,
+                    },
+                    Column {
                         name: "platform".to_string(),
                         type_: Type::String,
                         indexed: true,

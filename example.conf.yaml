@@ -23,6 +23,9 @@ tables:
     # indexed: whether an index is created for this field (default false)
     # required: whether NULL values are forbidden (default false)
     columns:
+      - name: time
+        type: timestamp
+        indexed: true
       - name: platform
         type: string
         indexed: true

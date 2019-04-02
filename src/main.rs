@@ -4,6 +4,7 @@
 #[macro_use] extern crate rocket;
 
 use std::error::Error;
+use std::fmt::Display;
 use std::fs;
 use std::process::exit;
 
@@ -14,8 +15,8 @@ use rocket::http::Status;
 use rocket::State;
 
 use config::Config;
+use db::DbError;
 use jsonvalue::JsonValue;
-use std::fmt::Display;
 
 mod config;
 mod db;
@@ -54,7 +55,10 @@ fn post_event(app_id: String, data: JsonValue, config: State<Config>, db_conn_po
         db::insert_event(&table, &conn, &event)
             .map_err(|err| {
                 println!("error inserting event into database: {}", err);
-                Status::InternalServerError
+                match err {
+                    DbError::ConversionError(_, _) => Status::BadRequest,
+                    _ => Status::InternalServerError
+                }
             })?;
     }
 
@@ -98,7 +102,7 @@ fn run() -> Result<(), RunError> {
     let conn = db_conn_pool.get()
         .map_err(|err| RunError(format!("failed to create database connection: {}", err)))?;
     db::create_tables(&config, &conn)
-        .map_err(|err| RunError(format!("failed to create database tables: {}", err)))?;
+        .map_err(|err| RunError(format!("failed to initialize database tables: {}", err)))?;
 
     let err = rocket::ignite()
         .manage(config)

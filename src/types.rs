@@ -87,7 +87,7 @@ fn json_to_date_time(json: &serde_json::Value) -> Result<Option<DateTime<FixedOf
         let naive = NaiveDateTime::from_timestamp(timestamp.floor() as i64, (1e9 * timestamp.fract()) as u32);
         Ok(Some(DateTime::<FixedOffset>::from_utc(naive, FixedOffset::west(0))))
     } else if json.is_string() {
-        Ok(Some(DateTime::parse_from_rfc2822(json.as_str().unwrap())
+        Ok(Some(DateTime::parse_from_rfc3339(json.as_str().unwrap())
             .map_err(|err| ConversionError::TimestampFormat(err))?))
     } else {
         Ok(None)

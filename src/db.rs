@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use itertools::{Itertools, process_results};
+use itertools::Itertools;
 use postgres::Connection;
 use postgres::types::ToSql;
 use crate::config::{Config, Table};
@@ -11,7 +11,7 @@ use crate::types::ConversionError;
 #[derive(Debug)]
 pub enum DbError {
     PostgresError(postgres::Error),
-    ConversionError(ConversionError),
+    ConversionError(String, ConversionError),
     StructureError(String),
 }
 
@@ -19,7 +19,7 @@ impl Display for DbError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
             DbError::PostgresError(err) => write!(f, "{}", err),
-            DbError::ConversionError(err) => write!(f, "{}", err),
+            DbError::ConversionError(field, err) => write!(f, "error converting field \"{}\": {}", field, err),
             DbError::StructureError(msg) => write!(f, "{}", msg),
         }
     }
@@ -38,12 +38,12 @@ pub fn insert_event(table: &Table, conn: &Connection, json: &serde_json::Value) 
                         table.name,
                         table.columns.iter().map(|column| format!(r#""{}""#, column.name)).join(", "),
                         (1..=table.columns.len()).map(|idx| format!("${}", idx)).join(", "));
-    let values: Vec<Box<ToSql>> =
-        process_results(
-            table.columns.iter()
-                .map(|column| column.type_.json_to_sql(&column.name, &json[&column.name], column.required)),
-        |iter| iter.collect())
-        .map_err(|err| DbError::ConversionError(err))?;
+    let mut values = Vec::<Box<ToSql>>::with_capacity(table.columns.len());
+    for column in &table.columns {
+        let value = column.type_.json_to_sql(&column.name, &json[&column.name], column.required)
+            .map_err(|err| DbError::ConversionError(column.name.to_string(), err))?;
+        values.push(value);
+    }
     // println!("{} {:?}", query, values);
     conn.execute(&query, &values.iter().map(|v| v.as_ref()).collect::<Vec<&ToSql>>())?;
     Ok(())
