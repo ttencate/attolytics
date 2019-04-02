@@ -68,7 +68,7 @@ The corresponding values must be of the correct type for those columns.
 Continuing with the above example of the `game_events` table:
 
       "events": [
-        {"_t": "events", "timestamp": 1554130180, "event_type": "game_start"}
+        {"_t": "events", "timestamp": 1554130180, "event_type": "game_start"},
         {"_t": "events", "timestamp": 1554130213, "event_type": "game_end", "score": 42}
       ]
 
