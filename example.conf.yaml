@@ -12,24 +12,33 @@ tables:
   events:
     # List of columns in the table. Valid column properties are:
     # name: the name of the column (required)
-    # type: the Postgres type of the column (required)
+    # type: data type of the column (required); one of:
+    #     - bool: boolean (boolean in JSON, BOOL in Postgres)
+    #     - i32: 32-bits signed integer (number in JSON, INTEGER in Postgres)
+    #     - i64: 64-bits signed integer (number in JSON, BIGINT in Postgres)
+    #     - f32: 32-bits floating point (number in JSON, REAL in Postgres)
+    #     - f64: 64-bits floating point (number in JSON, DOUBLE PRECISION in Postgres)
+    #     - string: Unicode string (string in JSON, VARCHAR in Postgres)
+    #     - timestamp: seconds since Unix epoch (number or RFC 3339 string in JSON, TIMESTAMP WITH TIMEZONE in Postgres)
     # indexed: whether an index is created for this field (default false)
     # required: whether NULL values are forbidden (default false)
     columns:
       - name: platform
-        type: varchar
+        type: string
         indexed: true
         required: true
       - name: version
-        type: varchar
+        type: string
         indexed: true
         required: true
       - name: user_id
-        type: varchar
+        type: string
       - name: event_type
-        type: varchar
+        type: string
         indexed: true
         required: true
+      - name: score
+        type: i32
 
 # The list of apps that send data into Attolytics.
 apps:

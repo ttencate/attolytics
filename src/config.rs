@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::Display;
 #[cfg(test)]
 use std::fs::File;
@@ -6,6 +7,8 @@ use std::fs::File;
 use std::io::Read;
 
 use serde::Deserialize;
+
+use crate::types::Type;
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -33,7 +36,7 @@ pub struct Table {
 pub struct Column {
     pub name: String,
     #[serde(rename = "type")]
-    pub postgres_type: String,
+    pub type_: Type,
     #[serde(default)]
     pub indexed: bool,
     #[serde(default)]
@@ -50,12 +53,14 @@ impl Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
             ConfigError::YamlParseError(err) =>
-                write!(f, "error parsing YAML: {}", err),
+                write!(f, "{}", err),
             ConfigError::TableNotFound {app_id, table_name} =>
                 write!(f, "app {} refers to undefined table {}", app_id, table_name),
         }
     }
 }
+
+impl Error for ConfigError {}
 
 impl Config {
     pub fn from_yaml(yaml_str: &str) -> Result<Config, ConfigError> {
@@ -90,28 +95,34 @@ fn parse_example_config() {
                 columns: vec![
                     Column {
                         name: "platform".to_string(),
-                        postgres_type: "varchar".to_string(),
+                        type_: Type::String,
                         indexed: true,
                         required: true,
                     },
                     Column {
                         name: "version".to_string(),
-                        postgres_type: "varchar".to_string(),
+                        type_: Type::String,
                         indexed: true,
                         required: true,
                     },
                     Column {
                         name: "user_id".to_string(),
-                        postgres_type: "varchar".to_string(),
+                        type_: Type::String,
                         indexed: false,
                         required: false,
                     },
                     Column {
                         name: "event_type".to_string(),
-                        postgres_type: "varchar".to_string(),
+                        type_: Type::String,
                         indexed: true,
                         required: true,
                     },
+                    Column {
+                        name: "score".to_string(),
+                        type_: Type::I32,
+                        indexed: false,
+                        required: false,
+                    }
                 ],
             }),
         ].iter().cloned().collect(),

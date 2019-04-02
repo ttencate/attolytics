@@ -3,26 +3,27 @@
 
 #[macro_use] extern crate rocket;
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
-use std::collections::HashSet;
+use std::process::exit;
 
 use clap::Arg;
-use itertools::Itertools;
+use itertools::{Itertools, process_results};
+use postgres::Connection;
 use postgres::types::ToSql;
 use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::http::Status;
 use rocket::State;
 
+use config::{Config, Table};
 use jsonvalue::JsonValue;
-use config::{Config, Table, Column};
-use postgres::Connection;
-use std::process::exit;
 
 mod config;
 mod jsonvalue;
+mod types;
 
 // TODO restrict POST body size to prevent DoS attacks
 
@@ -68,9 +69,10 @@ fn insert_event(table: &Table, conn: &Connection, json: &serde_json::Value) -> R
         table.name,
         table.columns.iter().map(|column| format!(r#""{}""#, column.name)).join(", "),
         (1..=table.columns.len()).map(|idx| format!("${}", idx)).join(", "));
-    let values: Vec<Box<ToSql>> = table.columns.iter()
-        .map(|column| json_to_sql(&json[&column.name], column))
-        .collect();
+    let values: Vec<Box<ToSql>> = process_results(
+        table.columns.iter()
+            .map(|column| column.type_.json_to_sql(&column.name, &json[&column.name], column.required)),
+        |iter| iter.collect())?;
     println!("{} {:?}", query, values);
     conn.execute(&query, &values.iter().map(|v| v.as_ref()).collect::<Vec<&ToSql>>())?;
     Ok(())
@@ -81,24 +83,6 @@ fn read_file(file_name: &str) -> Result<String, std::io::Error> {
     let mut file = File::open(file_name)?;
     file.read_to_string(&mut contents)?;
     Ok(contents)
-}
-
-fn json_to_sql(json: &serde_json::Value, column: &Column) -> Box<ToSql> {
-    use serde_json::Value::*;
-    match json {
-        Null => Box::new(None as Option<bool>),
-        Bool(bool) => Box::new(bool.clone()),
-        Number(number) => match number {
-            // There is no ToSql implementation for u64.
-            _ if number.is_i64() || number.is_u64() => Box::new(number.as_i64()),
-            _ => Box::new(number.as_f64()),
-        }
-        String(string) => Box::new(string.clone()),
-        // Not supported, ignored.
-        Array(_) => Box::new(None as Option<bool>),
-        // Not supported, ignored.
-        Object(_) => Box::new(None as Option<bool>),
-    }
 }
 
 fn create_tables(config: &Config, conn: &Connection) -> Result<(), postgres::Error> {
@@ -125,7 +109,7 @@ fn creation_query(table: &Table) -> String {
         .map(|column| format!(
             r#"{} {}{}"#,
             column.name,
-            column.postgres_type,
+            column.type_.postgres_type_name(),
             if column.required { " not null" } else { "" }
         ))
         .join(", ");

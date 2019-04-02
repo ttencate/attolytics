@@ -76,3 +76,14 @@ Continuing with the above example of the `game_events` table:
         {"_t": "events", "timestamp": 1554130180, "event_type": "game_start"}
         {"_t": "events", "timestamp": 1554130213, "event_type": "game_end", "score": 42}
       ]
+
+Schema changes
+--------------
+
+If you want to add, remove or alter columns in a table, this requires some
+manual work:
+
+* Stop the server.
+* Update the configuration file.
+* Update the database using `ALTER TABLE` statements.
+* Start the server.
