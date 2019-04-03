@@ -8,11 +8,12 @@ use std::fmt::Display;
 use std::fs;
 use std::process::exit;
 
-use clap::Arg;
+use clap::{AppSettings, Arg};
 use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::http::Status;
-use rocket::State;
+use rocket::{Config, State};
+use rocket::config::{Environment, Limits, LoggingLevel};
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 
@@ -96,20 +97,32 @@ fn run() -> Result<(), RunError> {
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .about("A simple web server that stores analytics events into a database")
+        .setting(AppSettings::NextLineHelp)
         .arg(Arg::with_name("schema_file")
-            .long("--schema")
-            .short("-s")
-            .value_name("path/to/schema.conf.yaml")
+            .long("--schema").short("-s").value_name("path/to/schema.conf.yaml")
             .help("Schema configuration file to use")
-            .takes_value(true)
-            .default_value("./schema.conf.yaml"))
+            .takes_value(true).default_value("./schema.conf.yaml"))
         .arg(Arg::with_name("db_url")
-             .long("--db_url")
-             .short("-d")
-             .value_name("postgres://user:pass@host:port/database")
+             .long("--db_url").short("-d").value_name("postgres://user:pass@host:port/database")
              .help("URL of the PostgreSQL database; see https://github.com/sfackler/rust-postgres#connecting for the format")
-             .takes_value(true)
-             .required(true))
+             .takes_value(true).required(true))
+        .arg(Arg::with_name("host")
+             .long("--host").short("-H").value_name("host")
+             .help("Hostname or IP address to listen on")
+             .takes_value(true).default_value("localhost"))
+        .arg(Arg::with_name("port")
+             .long("--port").short("-p").value_name("port_number")
+             .help("Port number to listen on")
+             .takes_value(true).default_value("8000")
+             .validator(|arg| arg.parse::<u16>().map(|_| ()).map_err(|err| format!("{}", err))))
+        .arg(Arg::with_name("verbose")
+             .long("--verbose").short("-v")
+             .help("Produce more verbose logging; may be given up to 2 times")
+             .multiple(true))
+        .arg(Arg::with_name("quiet")
+             .long("--quiet").short("-q")
+             .help("Produce no output")
+             .multiple(true))
         .get_matches();
 
     let schema_file_name = matches.value_of("schema_file").unwrap();
@@ -128,7 +141,24 @@ fn run() -> Result<(), RunError> {
     db::create_tables(&schema, &*conn)
         .map_err(|err| RunError(format!("failed to initialize database tables: {}", err)))?;
 
-    let err = rocket::ignite()
+    let verbosity = 1i32 + matches.occurrences_of("verbose") as i32 - matches.occurrences_of("quiet") as i32;
+    let logging_level = match verbosity {
+        0 => LoggingLevel::Off,
+        1 => LoggingLevel::Critical,
+        2 => LoggingLevel::Normal,
+        3 => LoggingLevel::Debug,
+        _ => if verbosity < 0 { LoggingLevel::Off } else { LoggingLevel::Debug },
+    };
+    let config = Config::build(Environment::active().map_err(|err| RunError(format!("invalid ROCKET_ENV value: {}", err)))?)
+        .address(matches.value_of("host").unwrap())
+        .port(matches.value_of("port").unwrap().parse::<u16>().unwrap())
+        .keep_alive(0)
+        .log_level(logging_level)
+        .limits(Limits::new().limit("json", 32 * 1024))
+        .finalize()
+        .map_err(|err| RunError(format!("failed to create Rocket configuration: {}", err)))?;
+
+    let err = rocket::custom(config)
         .manage(schema)
         .manage(db_conn_pool)
         .mount("/", routes![post_event])
