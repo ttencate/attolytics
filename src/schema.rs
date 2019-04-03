@@ -99,11 +99,10 @@ impl Schema {
 #[test]
 fn parse_example_schema() {
     let mut contents = String::new();
-    let mut file = File::open("example.conf.yaml").unwrap();
+    let mut file = File::open("schema-example.conf.yaml").unwrap();
     file.read_to_string(&mut contents).unwrap();
     let schema = Schema::from_yaml(&contents).unwrap();
     let expected_schema = Schema {
-        database_url: "postgres://myuser:mypassword@localhost:5432/attolytics".to_string(),
         tables: [
             ("events".to_string(), Table {
                 name: "events".to_string(),
@@ -111,36 +110,49 @@ fn parse_example_schema() {
                     Column {
                         name: "time".to_string(),
                         type_: Type::Timestamp,
+                        header: None,
                         indexed: true,
+                        required: false,
+                    },
+                    Column {
+                        name: "referer".to_string(),
+                        type_: Type::String,
+                        header: Some("Referer".to_string()),
+                        indexed: false,
                         required: false,
                     },
                     Column {
                         name: "platform".to_string(),
                         type_: Type::String,
+                        header: None,
                         indexed: true,
                         required: true,
                     },
                     Column {
                         name: "version".to_string(),
                         type_: Type::String,
+                        header: None,
                         indexed: true,
                         required: true,
                     },
                     Column {
                         name: "user_id".to_string(),
                         type_: Type::String,
+                        header: None,
                         indexed: false,
                         required: false,
                     },
                     Column {
                         name: "event_type".to_string(),
                         type_: Type::String,
+                        header: None,
                         indexed: true,
                         required: true,
                     },
                     Column {
                         name: "score".to_string(),
                         type_: Type::I32,
+                        header: None,
                         indexed: false,
                         required: false,
                     }
@@ -150,7 +162,8 @@ fn parse_example_schema() {
         apps: [
             ("com.example.myapp".to_string(), App {
                 app_id: "com.example.myapp".to_string(),
-                secret_key: "n6MrfBnXcB7pIEeKdiCBmT8AqLEmtfUO".to_string(),
+                secret_key: "qD3eRda0709mD/3kGp4DlJtEQy5aMY0m".to_string(),
+                access_control_allow_origin: "http://example.com".to_string(),
                 tables: vec!["events".to_string()],
             }),
         ].iter().cloned().collect(),

@@ -32,17 +32,13 @@ tables:
       - name: referer
         header: Referer
       - name: platform
-        type: string
         indexed: true
         required: true
       - name: version
-        type: string
         indexed: true
         required: true
       - name: user_id
-        type: string
       - name: event_type
-        type: string
         indexed: true
         required: true
       - name: score
