@@ -51,10 +51,10 @@ apps:
     # provide ironclad security, because anyone who has the app can reverse
     # engineer the key out of it, or simply intercept it on the wire.
     #
-    # A way to generate it is the apg tool:
+    # One way to generate it is the openssl tool:
     #
-    #     $ apg -m32 -x32 -n1 -a1 -Mncl
-    secret_key: n6MrfBnXcB7pIEeKdiCBmT8AqLEmtfUO
+    #     $ openssl rand -base64 24
+    secret_key: qD3eRda0709mD/3kGp4DlJtEQy5aMY0m
     # A list of table names (as created above) that this app can send data into.
     tables:
       - events
