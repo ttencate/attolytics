@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use itertools::Itertools;
-use postgres::Connection;
+use postgres::GenericConnection;
 use postgres::types::ToSql;
 use crate::config::{Config, Table};
 use std::fmt::Display;
@@ -33,7 +33,7 @@ impl From<postgres::Error> for DbError {
     }
 }
 
-pub fn insert_event(table: &Table, conn: &Connection, json: &serde_json::Value) -> Result<(), DbError> {
+pub fn insert_event(table: &Table, conn: &GenericConnection, json: &serde_json::Value) -> Result<(), DbError> {
     let query = format!(r#"INSERT INTO "{}" ({}) VALUES ({})"#,
                         table.name,
                         table.columns.iter().map(|column| format!(r#""{}""#, column.name)).join(", "),
@@ -49,7 +49,7 @@ pub fn insert_event(table: &Table, conn: &Connection, json: &serde_json::Value) 
     Ok(())
 }
 
-pub fn create_tables(config: &Config, conn: &Connection) -> Result<(), DbError> {
+pub fn create_tables(config: &Config, conn: &GenericConnection) -> Result<(), DbError> {
     let existing_tables = conn.query(r#"
         SELECT relname
         FROM pg_catalog.pg_class
@@ -84,7 +84,7 @@ fn creation_query(table: &Table) -> String {
         "#, table.name, columns)
 }
 
-fn check_table(table: &Table, conn: &Connection) -> Result<(), DbError> {
+fn check_table(table: &Table, conn: &GenericConnection) -> Result<(), DbError> {
     // https://stackoverflow.com/questions/20194806/how-to-get-a-list-column-names-and-datatype-of-a-table-in-postgresql
     let existing_columns = conn.query(r#"
         SELECT

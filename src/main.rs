@@ -37,14 +37,6 @@ fn post_event(app_id: String, data: Json<EventPostData>, config: State<Config>, 
         return Err(Status::Forbidden);
     }
 
-    // TODO don't insert anything until we've verified the entire request (use db transaction?)
-
-    let conn = db_conn_pool.get()
-        .map_err(|err| {
-            println!("error connecting to database: {}", err);
-            Status::InternalServerError
-        })?;
-
     for event in &data.events {
         let table_name = event["_t"].as_str()
             .ok_or(Status::BadRequest)?
@@ -52,9 +44,24 @@ fn post_event(app_id: String, data: Json<EventPostData>, config: State<Config>, 
         if !app.tables.contains(&table_name) {
             return Err(Status::NotFound);
         }
-        let table = config.tables.get(&table_name)
-            .ok_or(Status::NotFound)?;
-        db::insert_event(&table, &conn, &event)
+    }
+
+    let conn = db_conn_pool.get()
+        .map_err(|err| {
+            println!("error connecting to database: {}", err);
+            Status::InternalServerError
+        })?;
+    let trans = conn.transaction()
+        .map_err(|err| {
+            println!("error starting transaction: {}", err);
+            Status::InternalServerError
+        })?;
+
+    for event in &data.events {
+        let table_name = event["_t"].as_str().unwrap();
+        let table = config.tables.get(table_name)
+            .ok_or(Status::InternalServerError)?; // Table is in app.tables so it must be here.
+        db::insert_event(&table, &trans, &event)
             .map_err(|err| {
                 println!("error inserting event into database: {}", err);
                 match err {
@@ -63,6 +70,12 @@ fn post_event(app_id: String, data: Json<EventPostData>, config: State<Config>, 
                 }
             })?;
     }
+
+    trans.commit()
+        .map_err(|err| {
+            println!("error committing transaction: {}", err);
+            Status::InternalServerError
+        })?;
 
     Ok("".to_owned())
 }
@@ -103,7 +116,7 @@ fn run() -> Result<(), RunError> {
 
     let conn = db_conn_pool.get()
         .map_err(|err| RunError(format!("failed to create database connection: {}", err)))?;
-    db::create_tables(&config, &conn)
+    db::create_tables(&config, &*conn)
         .map_err(|err| RunError(format!("failed to initialize database tables: {}", err)))?;
 
     let err = rocket::ignite()
