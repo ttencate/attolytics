@@ -1,0 +1,69 @@
+# This is an example configuration file for Attolytics. It is also used by the
+# unit tests.
+
+# Connection URL for the Postgres database. For full documentation of the
+# format, see:
+# https://github.com/sfackler/rust-postgres#connecting
+database_url: postgres://myuser:mypassword@localhost:5432/attolytics
+
+# A list of Postgres tables which are to be created and managed.
+tables:
+  # Each table is keyed by its name. This here creates a table named "events".
+  events:
+    # List of columns in the table. Valid column properties are:
+    # name: the name of the column (required)
+    # type: data type of the column (optional, defaults to string); one of:
+    #     - bool: boolean (boolean in JSON, BOOL in Postgres)
+    #     - i32: 32-bits signed integer (number in JSON, INTEGER in Postgres)
+    #     - i64: 64-bits signed integer (number in JSON, BIGINT in Postgres)
+    #     - f32: 32-bits floating point (number in JSON, REAL in Postgres)
+    #     - f64: 64-bits floating point (number in JSON, DOUBLE PRECISION in Postgres)
+    #     - string: Unicode string (string in JSON, VARCHAR in Postgres)
+    #     - timestamp: seconds since Unix epoch (number or RFC 3339 string in JSON,
+    #                  TIMESTAMP WITH TIMEZONE in Postgres)
+    # header: when given, populate the field as a string with the value of this
+    #         HTTP header from the event logging request (case insensitive)
+    # indexed: whether an index is created for this field (default false)
+    # required: whether NULL values are forbidden (default false)
+    columns:
+      - name: time
+        type: timestamp
+        indexed: true
+      - name: referer
+        header: Referer
+      - name: platform
+        type: string
+        indexed: true
+        required: true
+      - name: version
+        type: string
+        indexed: true
+        required: true
+      - name: user_id
+        type: string
+      - name: event_type
+        type: string
+        indexed: true
+        required: true
+      - name: score
+        type: i32
+
+# The list of apps that send data into Attolytics.
+apps:
+  # Each app is identified by a unique string. 
+  com.example.myapp:
+    # A random string key sent by the app with every request. This doesn't
+    # provide ironclad security, because anyone who has the app can reverse
+    # engineer the key out of it, or simply intercept it on the wire.
+    #
+    # One way to generate it is the openssl tool:
+    #
+    #     $ openssl rand -base64 24
+    secret_key: qD3eRda0709mD/3kGp4DlJtEQy5aMY0m
+    # Set the Access-Control-Allow-Origin header to inform browsers to only
+    # permit requests from these origins. By default, this is * which means all
+    # origins are allowed.
+    access_control_allow_origin: http://example.com
+    # A list of table names (as created above) that this app can send data into.
+    tables:
+      - events

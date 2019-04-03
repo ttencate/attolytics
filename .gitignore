@@ -3,4 +3,4 @@
 .idea/
 *.iml
 *.yaml
-!example.conf.yaml
+!schema-example.conf.yaml
