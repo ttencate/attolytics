@@ -3,10 +3,11 @@ use std::collections::HashSet;
 use itertools::Itertools;
 use postgres::GenericConnection;
 use postgres::types::ToSql;
+use rocket::http::HeaderMap;
 use crate::schema::{Schema, Table};
 use std::fmt::Display;
 use std::error::Error;
-use crate::types::ConversionError;
+use crate::types::{ConversionError, header_to_sql};
 
 #[derive(Debug)]
 pub enum DbError {
@@ -33,15 +34,17 @@ impl From<postgres::Error> for DbError {
     }
 }
 
-pub fn insert_event(table: &Table, conn: &GenericConnection, json: &serde_json::Value) -> Result<(), DbError> {
+pub fn insert_event(table: &Table, conn: &GenericConnection, json: &serde_json::Value, headers: &HeaderMap) -> Result<(), DbError> {
     let query = format!(r#"INSERT INTO "{}" ({}) VALUES ({})"#,
                         table.name,
                         table.columns.iter().map(|column| format!(r#""{}""#, column.name)).join(", "),
                         (1..=table.columns.len()).map(|idx| format!("${}", idx)).join(", "));
     let mut values = Vec::<Box<ToSql>>::with_capacity(table.columns.len());
     for column in &table.columns {
-        let value = column.type_.json_to_sql(&column.name, &json[&column.name], column.required)
-            .map_err(|err| DbError::ConversionError(column.name.to_string(), err))?;
+        let value = match &column.header {
+            Some(header) => header_to_sql(&column.name, headers.get(&header).next(), column.required),
+            None => column.type_.json_to_sql(&column.name, &json[&column.name], column.required),
+        }.map_err(|err| DbError::ConversionError(column.name.to_string(), err))?;
         values.push(value);
     }
     // println!("{} {:?}", query, values);

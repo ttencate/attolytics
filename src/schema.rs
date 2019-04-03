@@ -40,8 +40,10 @@ pub struct Table {
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct Column {
     pub name: String,
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     pub type_: Type,
+    #[serde(default)]
+    pub header: Option<String>,
     #[serde(default)]
     pub indexed: bool,
     #[serde(default)]
@@ -52,6 +54,7 @@ pub struct Column {
 pub enum SchemaError {
     YamlParseError(serde_yaml::Error),
     TableNotFound { app_id: String, table_name: String },
+    WrongColumnType { actual: Type, expected: Type },
 }
 
 impl Display for SchemaError {
@@ -61,6 +64,8 @@ impl Display for SchemaError {
                 write!(f, "{}", err),
             SchemaError::TableNotFound {app_id, table_name} =>
                 write!(f, "app {} refers to undefined table {}", app_id, table_name),
+            SchemaError::WrongColumnType {actual, expected} =>
+                write!(f, "column type should be {:?} here, but was {:?}", expected, actual),
         }
     }
 }
@@ -73,6 +78,11 @@ impl Schema {
             .map_err(|err| SchemaError::YamlParseError(err))?;
         for (table_name, table) in &mut schema.tables {
             table.name = table_name.to_string();
+            for column in &mut table.columns {
+                if column.header.is_some() && column.type_ != Type::String {
+                    return Err(SchemaError::WrongColumnType { actual: column.type_.clone(), expected: Type::String })
+                }
+            }
         }
         for (app_id, app) in &mut schema.apps {
             app.app_id = app_id.to_string();

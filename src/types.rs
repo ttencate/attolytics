@@ -24,6 +24,12 @@ pub enum Type {
     Timestamp,
 }
 
+impl Default for Type {
+    fn default() -> Type {
+        Type::String
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConversionError {
     MissingValue(String),
@@ -71,7 +77,11 @@ impl Type {
     }
 }
 
-fn unwrap_if_required<'a, T>(key: &str, option: Option<T>, required: bool) -> Result<Box<ToSql + 'a>, ConversionError>
+pub fn header_to_sql<'a>(key: &str, value: Option<&'a str>, required: bool) -> Result<Box<ToSql + 'a>, ConversionError> {
+    unwrap_if_required(key, value, required)
+}
+
+pub fn unwrap_if_required<'a, T>(key: &str, option: Option<T>, required: bool) -> Result<Box<ToSql + 'a>, ConversionError>
     where T: ToSql + 'a
 {
     if required {

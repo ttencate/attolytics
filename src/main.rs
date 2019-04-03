@@ -6,15 +6,18 @@
 use std::error::Error;
 use std::fmt::Display;
 use std::fs;
+use std::ops::Deref;
 use std::process::exit;
 
 use clap::{AppSettings, Arg};
 use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
-use rocket::http::Status;
 use rocket::{Config, State};
 use rocket::config::{Environment, Limits, LoggingLevel};
+use rocket::http::{Status, HeaderMap};
 use rocket::http::hyper::header::AccessControlAllowOrigin;
+use rocket::outcome::Outcome;
+use rocket::request::{FromRequest, Request};
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 
@@ -37,6 +40,23 @@ struct CorsHeader {
     header: AccessControlAllowOrigin,
 }
 
+#[derive(Debug)]
+struct Headers<'a, 'r>(&'a HeaderMap<'r>);
+
+impl<'a, 'r> FromRequest<'a, 'r> for Headers<'a, 'r> {
+    type Error = ();
+    fn from_request(request: &'a Request<'r>) -> rocket::request::Outcome<Self, Self::Error> {
+        Outcome::Success(Headers(request.headers()))
+    }
+}
+
+impl<'a, 'r> Deref for Headers<'a, 'r> {
+    type Target = &'a HeaderMap<'r>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[options("/apps/<app_id>/events")]
 fn options_events(app_id: String, schema: State<Schema>) -> Result<CorsHeader, Status> {
     let app = schema.apps.get(&app_id)
@@ -48,7 +68,14 @@ fn options_events(app_id: String, schema: State<Schema>) -> Result<CorsHeader, S
 }
 
 #[post("/apps/<app_id>/events", format = "json", data = "<data>")]
-fn post_events(app_id: String, data: Json<EventPostData>, schema: State<Schema>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
+fn post_events(
+    app_id: String,
+    headers: Headers,
+    data: Json<EventPostData>,
+    schema: State<Schema>,
+    db_conn_pool: State<Pool<PostgresConnectionManager>>)
+    -> Result<String, Status>
+{
     let app = schema.apps.get(&app_id)
         .ok_or(Status::NotFound)?;
     if data.secret_key != app.secret_key {
@@ -79,7 +106,7 @@ fn post_events(app_id: String, data: Json<EventPostData>, schema: State<Schema>,
         let table_name = event["_t"].as_str().unwrap();
         let table = schema.tables.get(table_name)
             .ok_or(Status::InternalServerError)?; // Table is in app.tables so it must be here.
-        db::insert_event(&table, &trans, &event)
+        db::insert_event(&table, &trans, &event, &*headers)
             .map_err(|err| {
                 println!("error inserting event into database: {}", err);
                 match err {
