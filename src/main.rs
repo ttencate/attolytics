@@ -13,25 +13,27 @@ use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::http::Status;
 use rocket::State;
+use rocket_contrib::json::Json;
+use serde::Deserialize;
 
 use config::Config;
 use db::DbError;
-use jsonvalue::JsonValue;
 
 mod config;
 mod db;
-mod jsonvalue;
 mod types;
 
-// TODO restrict POST body size to prevent DoS attacks
+#[derive(Debug, Deserialize)]
+struct EventPostData {
+    secret_key: String,
+    events: Vec<serde_json::Value>,
+}
 
-#[post("/apps/<app_id>/events", format = "application/json", data = "<data>")]
-fn post_event(app_id: String, data: JsonValue, config: State<Config>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
-    let data = data.into_inner();
-
+#[post("/apps/<app_id>/events", format = "json", data = "<data>")]
+fn post_event(app_id: String, data: Json<EventPostData>, config: State<Config>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
     let app = config.apps.get(&app_id)
         .ok_or(Status::NotFound)?;
-    if data["secret_key"] != app.secret_key {
+    if data.secret_key != app.secret_key {
         return Err(Status::Forbidden);
     }
 
@@ -43,7 +45,7 @@ fn post_event(app_id: String, data: JsonValue, config: State<Config>, db_conn_po
             Status::InternalServerError
         })?;
 
-    for event in data["events"].as_array().ok_or_else(|| Status::BadRequest)? {
+    for event in &data.events {
         let table_name = event["_t"].as_str()
             .ok_or(Status::BadRequest)?
             .to_owned();
