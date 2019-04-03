@@ -21,7 +21,13 @@ pub struct App {
     #[serde(skip)]
     pub app_id: String,
     pub secret_key: String,
+    #[serde(default = "default_access_control_allow_origin")]
+    pub access_control_allow_origin: String,
     pub tables: Vec<String>,
+}
+
+fn default_access_control_allow_origin() -> String {
+    "*".to_string()
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]

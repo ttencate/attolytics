@@ -14,6 +14,7 @@ use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::http::Status;
 use rocket::{Config, State};
 use rocket::config::{Environment, Limits, LoggingLevel};
+use rocket::http::hyper::header::AccessControlAllowOrigin;
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 
@@ -30,8 +31,24 @@ struct EventPostData {
     events: Vec<serde_json::Value>,
 }
 
+#[derive(Debug, Responder)]
+struct CorsHeader {
+    inner: String,
+    header: AccessControlAllowOrigin,
+}
+
+#[options("/apps/<app_id>/events")]
+fn options_events(app_id: String, schema: State<Schema>) -> Result<CorsHeader, Status> {
+    let app = schema.apps.get(&app_id)
+        .ok_or(Status::NotFound)?;
+    Ok(CorsHeader {
+        inner: "".to_string(),
+        header: AccessControlAllowOrigin::Value(app.access_control_allow_origin.clone())
+    })
+}
+
 #[post("/apps/<app_id>/events", format = "json", data = "<data>")]
-fn post_event(app_id: String, data: Json<EventPostData>, schema: State<Schema>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
+fn post_events(app_id: String, data: Json<EventPostData>, schema: State<Schema>, db_conn_pool: State<Pool<PostgresConnectionManager>>) -> Result<String, Status> {
     let app = schema.apps.get(&app_id)
         .ok_or(Status::NotFound)?;
     if data.secret_key != app.secret_key {
@@ -161,7 +178,10 @@ fn run() -> Result<(), RunError> {
     let err = rocket::custom(config)
         .manage(schema)
         .manage(db_conn_pool)
-        .mount("/", routes![post_event])
+        .mount("/", routes![
+            options_events,
+            post_events,
+        ])
         .launch();
     Err(RunError(format!("failed to launch web server: {}", err)))
 }
