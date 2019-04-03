@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use itertools::Itertools;
 use postgres::GenericConnection;
 use postgres::types::ToSql;
-use crate::config::{Config, Table};
+use crate::schema::{Schema, Table};
 use std::fmt::Display;
 use std::error::Error;
 use crate::types::ConversionError;
@@ -49,7 +49,7 @@ pub fn insert_event(table: &Table, conn: &GenericConnection, json: &serde_json::
     Ok(())
 }
 
-pub fn create_tables(config: &Config, conn: &GenericConnection) -> Result<(), DbError> {
+pub fn create_tables(schema: &Schema, conn: &GenericConnection) -> Result<(), DbError> {
     let existing_tables = conn.query(r#"
         SELECT relname
         FROM pg_catalog.pg_class
@@ -59,7 +59,7 @@ pub fn create_tables(config: &Config, conn: &GenericConnection) -> Result<(), Db
         .map(|row| row.get(0))
         .collect::<HashSet<String>>();
 
-    for table in config.tables.values() {
+    for table in schema.tables.values() {
         if !existing_tables.contains(&table.name) {
             conn.execute(&creation_query(table), &[])?;
         } else {
@@ -116,19 +116,19 @@ fn check_table(table: &Table, conn: &GenericConnection) -> Result<(), DbError> {
             Some(column) => {
                 if type_oid != column.type_.postgres_type().oid() {
                     return Err(DbError::StructureError(format!(
-                        "table \"{}\" has column \"{}\" of type \"{}\", which does not match configured type \"{}\"",
+                        "table \"{}\" has column \"{}\" of type \"{}\", which does not match type \"{}\" configured in the schema",
                         table.name, name, postgres_type, column.type_.postgres_type_name())))
                 }
                 if required && !column.required {
                     return Err(DbError::StructureError(format!(
-                        "table \"{}\" has non-nullable column \"{}\" which is not required in the configuration",
+                        "table \"{}\" has non-nullable column \"{}\" which is not required in the schema",
                         table.name, name)))
                 }
             }
             None => {
                 if required {
                     return Err(DbError::StructureError(format!(
-                        "table \"{}\" has an extra required column \"{}\" that is not in the configuration",
+                        "table \"{}\" has an extra required column \"{}\" that is not in the schema",
                         table.name, name)).into())
                 }
             }
@@ -138,7 +138,7 @@ fn check_table(table: &Table, conn: &GenericConnection) -> Result<(), DbError> {
         let matching_column = existing_columns.iter().find(|c| c.get::<&str, String>("name") == column.name);
         if matching_column.is_none() {
             return Err(DbError::StructureError(format!(
-                "table \"{}\" is missing configured column \"{}\"",
+                "table \"{}\" is missing column \"{}\" configured in the schema",
                 table.name, column.name)));
         }
     }

@@ -11,8 +11,7 @@ use serde::Deserialize;
 use crate::types::Type;
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
-pub struct Config {
-    pub database_url: String,
+pub struct Schema {
     pub tables: HashMap<String, Table>,
     pub apps: HashMap<String, App>,
 }
@@ -44,50 +43,50 @@ pub struct Column {
 }
 
 #[derive(Debug)]
-pub enum ConfigError {
+pub enum SchemaError {
     YamlParseError(serde_yaml::Error),
     TableNotFound { app_id: String, table_name: String },
 }
 
-impl Display for ConfigError {
+impl Display for SchemaError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            ConfigError::YamlParseError(err) =>
+            SchemaError::YamlParseError(err) =>
                 write!(f, "{}", err),
-            ConfigError::TableNotFound {app_id, table_name} =>
+            SchemaError::TableNotFound {app_id, table_name} =>
                 write!(f, "app {} refers to undefined table {}", app_id, table_name),
         }
     }
 }
 
-impl Error for ConfigError {}
+impl Error for SchemaError {}
 
-impl Config {
-    pub fn from_yaml(yaml_str: &str) -> Result<Config, ConfigError> {
-        let mut config = serde_yaml::from_str::<Config>(yaml_str)
-            .map_err(|err| ConfigError::YamlParseError(err))?;
-        for (table_name, table) in &mut config.tables {
+impl Schema {
+    pub fn from_yaml(yaml_str: &str) -> Result<Schema, SchemaError> {
+        let mut schema = serde_yaml::from_str::<Schema>(yaml_str)
+            .map_err(|err| SchemaError::YamlParseError(err))?;
+        for (table_name, table) in &mut schema.tables {
             table.name = table_name.to_string();
         }
-        for (app_id, app) in &mut config.apps {
+        for (app_id, app) in &mut schema.apps {
             app.app_id = app_id.to_string();
             for table_name in &app.tables {
-                if !config.tables.contains_key(table_name) {
-                    return Err(ConfigError::TableNotFound {app_id: app_id.to_string(), table_name: table_name.to_string()})
+                if !schema.tables.contains_key(table_name) {
+                    return Err(SchemaError::TableNotFound {app_id: app_id.to_string(), table_name: table_name.to_string()})
                 }
             }
         }
-        Ok(config)
+        Ok(schema)
     }
 }
 
 #[test]
-fn parse_example_config() {
+fn parse_example_schema() {
     let mut contents = String::new();
     let mut file = File::open("example.conf.yaml").unwrap();
     file.read_to_string(&mut contents).unwrap();
-    let config = Config::from_yaml(&contents).unwrap();
-    let expected_config = Config {
+    let schema = Schema::from_yaml(&contents).unwrap();
+    let expected_schema = Schema {
         database_url: "postgres://myuser:mypassword@localhost:5432/attolytics".to_string(),
         tables: [
             ("events".to_string(), Table {
@@ -140,5 +139,5 @@ fn parse_example_config() {
             }),
         ].iter().cloned().collect(),
     };
-    assert_eq!(config, expected_config);
+    assert_eq!(schema, expected_schema);
 }

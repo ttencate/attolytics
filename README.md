@@ -22,7 +22,7 @@ Compiling
 
 * Compile the binary:
 
-        $ cargo build
+        $ cargo build --release
 
 Running
 -------
@@ -33,13 +33,19 @@ Running
 
         $ createdb -o $(whoami) attolytics
 
-* Create a configuration file, typically named `attolytics.conf.yaml`. See
-  [`example.conf.yaml`](example.conf.yaml) for a documented example of the
-  format.
+* Create a schema file, typically named `schema.conf.yaml`. This file tells
+  Attolytics which tables exist, and which apps write to which tables. See
+  [`schema-example.conf.yaml`](schema-example.conf.yaml) for a documented
+  example of the format.
 
-* Run the executable, passing it the location of your configuration file:
+* Run the executable, passing it the location of your schema file and the URL
+  of your database:
 
-        $ ./target/debug/attolytics --config ./attolytics.conf.yaml
+        $ ./target/release/attolytics --schema ./schema.conf.yaml --db_url postgres://$(whoami)@localhost/attolytics
+
+  For full documentation of supported options, run:
+
+        $ ./target/release/attolytics --help
 
 REST API
 --------
