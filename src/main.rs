@@ -1,5 +1,6 @@
-#![feature(proc_macro_hygiene)]
 #![feature(decl_macro)]
+#![feature(never_type)]
+#![feature(proc_macro_hygiene)]
 
 #[macro_use] extern crate rocket;
 
@@ -15,14 +16,14 @@ use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::{Config, State};
 use rocket::config::{Environment, Limits, LoggingLevel};
 use rocket::fairing;
-use rocket::http::{Status, HeaderMap};
-use rocket::http::hyper::header::AccessControlAllowOrigin;
+use rocket::http::{Method, Status, HeaderMap};
 use rocket::outcome::Outcome;
 use rocket::request::{FromRequest, Request};
+use rocket::response::Responder;
 use rocket_contrib::json::Json;
 use serde::Deserialize;
 
-use schema::Schema;
+use schema::{App, Schema};
 use db::DbError;
 
 mod schema;
@@ -35,95 +36,107 @@ struct EventPostData {
     events: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Responder)]
-struct CorsHeader {
-    inner: String,
-    header: AccessControlAllowOrigin,
-}
-
 #[derive(Debug)]
-struct Headers<'a, 'r>(&'a HeaderMap<'r>);
+struct Headers<'a>(&'a HeaderMap<'a>);
 
-impl<'a, 'r> FromRequest<'a, 'r> for Headers<'a, 'r> {
-    type Error = ();
+impl<'a, 'r> FromRequest<'a, 'r> for Headers<'a> {
+    type Error = !;
     fn from_request(request: &'a Request<'r>) -> rocket::request::Outcome<Self, Self::Error> {
         Outcome::Success(Headers(request.headers()))
     }
 }
 
-impl<'a, 'r> Deref for Headers<'a, 'r> {
-    type Target = &'a HeaderMap<'r>;
+impl<'a> Deref for Headers<'a> {
+    type Target = &'a HeaderMap<'a>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+fn events_cors_options(app: &App) -> rocket_cors::Cors {
+    let allowed_origins = if app.access_control_allow_origin == "*" {
+        rocket_cors::AllowedOrigins::all()
+    } else {
+        let (allowed_origins, failed_origins) = rocket_cors::AllowedOrigins::some(&[&app.access_control_allow_origin]);
+        if !failed_origins.is_empty() {
+            eprintln!("failed to process CORS origins: {:?}", failed_origins)
+        }
+        allowed_origins
+    };
+    rocket_cors::Cors {
+        allowed_origins: allowed_origins,
+        allowed_methods: vec![Method::Post].into_iter().map(From::from).collect(),
+        ..Default::default()
+    }
+}
+
 #[options("/apps/<app_id>/events")]
-fn options_events(app_id: String, schema: State<Schema>) -> Result<CorsHeader, Status> {
-    let app = schema.apps.get(&app_id)
-        .ok_or(Status::NotFound)?;
-    Ok(CorsHeader {
-        inner: "".to_string(),
-        header: AccessControlAllowOrigin::Value(app.access_control_allow_origin.clone())
-    })
+fn events_options<'r>(app_id: String, schema: State<Schema>)
+    -> Option<impl Responder<'r>>
+{
+    let app = schema.apps.get(&app_id)?;
+    Some(events_cors_options(app).respond_owned(|guard| guard.responder("".to_string())))
 }
 
 #[post("/apps/<app_id>/events", format = "json", data = "<data>")]
-fn post_events(
+fn events_post<'r>(
     app_id: String,
-    headers: Headers,
+    headers: Headers<'r>,
     data: Json<EventPostData>,
-    schema: State<Schema>,
-    db_conn_pool: State<Pool<PostgresConnectionManager>>)
-    -> Result<String, Status>
+    schema: State<'r, Schema>,
+    db_conn_pool: State<'r, Pool<PostgresConnectionManager>>)
+    -> Option<impl Responder<'r>>
 {
-    let app = schema.apps.get(&app_id)
-        .ok_or(Status::NotFound)?;
-    if data.secret_key != app.secret_key {
-        return Err(Status::Forbidden);
-    }
-
-    for event in &data.events {
-        let table_name = event["_t"].as_str()
-            .ok_or(Status::BadRequest)?
-            .to_owned();
-        if !app.tables.contains(&table_name) {
-            return Err(Status::NotFound);
+    // There should be a way to get rid of the clone() but I'm tired of fighting the borrow checker
+    // over it.
+    let app = schema.apps.get(&app_id)?.clone();
+    Some(events_cors_options(&app).respond_owned(move |guard| {
+        if data.secret_key != app.secret_key {
+            return Err(Status::Forbidden);
         }
-    }
 
-    let conn = db_conn_pool.get()
-        .map_err(|err| {
-            println!("error connecting to database: {}", err);
-            Status::InternalServerError
-        })?;
-    let trans = conn.transaction()
-        .map_err(|err| {
-            println!("error starting transaction: {}", err);
-            Status::InternalServerError
-        })?;
+        for event in &data.events {
+            let table_name = event["_t"].as_str()
+                .ok_or(Status::BadRequest)?
+                .to_owned();
+            if !app.tables.contains(&table_name) {
+                return Err(Status::NotFound);
+            }
+        }
 
-    for event in &data.events {
-        let table_name = event["_t"].as_str().unwrap();
-        let table = schema.tables.get(table_name)
-            .ok_or(Status::InternalServerError)?; // Table is in app.tables so it must be here.
-        db::insert_event(&table, &trans, &event, &*headers)
+        let conn = db_conn_pool.get()
             .map_err(|err| {
-                println!("error inserting event into database: {}", err);
-                match err {
-                    DbError::ConversionError(_, _) => Status::BadRequest,
-                    _ => Status::InternalServerError
-                }
+                println!("error connecting to database: {}", err);
+                Status::InternalServerError
             })?;
-    }
+        let trans = conn.transaction()
+            .map_err(|err| {
+                println!("error starting transaction: {}", err);
+                Status::InternalServerError
+            })?;
 
-    trans.commit()
-        .map_err(|err| {
-            println!("error committing transaction: {}", err);
-            Status::InternalServerError
-        })?;
+        for event in &data.events {
+            let table_name = event["_t"].as_str().unwrap();
+            let table = schema.tables.get(table_name)
+                .ok_or(Status::InternalServerError)?; // Table is in app.tables so it must be here.
+            db::insert_event(&table, &trans, &event, &*headers)
+                .map_err(|err| {
+                    println!("error inserting event into database: {}", err);
+                    match err {
+                        DbError::ConversionError(_, _) => Status::BadRequest,
+                        _ => Status::InternalServerError
+                    }
+                })?;
+        }
 
-    Ok("".to_owned())
+        trans.commit()
+            .map_err(|err| {
+                println!("error committing transaction: {}", err);
+                Status::InternalServerError
+            })?;
+
+        Ok(guard.responder("".to_string()))
+    }))
 }
 
 #[derive(Debug)]
@@ -228,8 +241,8 @@ fn run() -> Result<(), RunError> {
         .manage(schema)
         .manage(db_conn_pool)
         .mount("/", routes![
-            options_events,
-            post_events,
+            events_options,
+            events_post,
         ])
         .attach(SystemdLaunchNotification {})
         .launch();
