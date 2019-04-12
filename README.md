@@ -73,7 +73,16 @@ be used:
     [Install]
     WantedBy=nginx.service
 
-And the corresponding nginx configuration:
+Note that a warning will be emitted in the logs:
+
+    Warning: environment is 'production', but no `secret_key` is configured
+
+This is harmless, because this `secret_key` is not related to the per-app
+`secret_key` specified it the schema. This one here is only [used by the Rocket
+framework](https://rocket.rs/v0.4/guide/requests/#secret-key) to encrypt
+cookies, but Attolytics doesn't use cookies.
+
+Here is the corresponding nginx configuration:
 
 **`/etc/nginx/sites-enabled/attolytics.conf`**
 
