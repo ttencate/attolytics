@@ -14,6 +14,7 @@ use r2d2::Pool;
 use r2d2_postgres::{PostgresConnectionManager, TlsMode};
 use rocket::{Config, State};
 use rocket::config::{Environment, Limits, LoggingLevel};
+use rocket::fairing;
 use rocket::http::{Status, HeaderMap};
 use rocket::http::hyper::header::AccessControlAllowOrigin;
 use rocket::outcome::Outcome;
@@ -136,6 +137,27 @@ impl Display for RunError {
 
 impl Error for RunError {}
 
+struct SystemdLaunchNotification {}
+
+impl fairing::Fairing for SystemdLaunchNotification {
+    fn info(&self) -> fairing::Info {
+        fairing::Info { name: "systemd launch notifier", kind: fairing::Kind::Launch }
+    }
+
+    // "A launch callback, represented by the Fairing::on_launch() method, is called immediately
+    // before the Rocket application has launched. At this point, Rocket has opened a socket for
+    // listening but has not yet begun accepting connections."
+    // It would be better if we could wait for the latter too, but there seems to be no support for
+    // that in Rocket.
+    fn on_launch(&self, _rocket: &rocket::Rocket) {
+        match systemd::daemon::notify(true /* unset_environment */, [(systemd::daemon::STATE_READY, "1")].iter()) {
+            Ok(true) => {},
+            Ok(false) => eprintln!("failed to contact systemd"),
+            Err(err) => eprintln!("failed to notify systemd of launch: {}", err),
+        }
+    }
+}
+
 fn run() -> Result<(), RunError> {
     let matches = clap::App::new("Attolytics")
         .author(clap::crate_authors!())
@@ -209,6 +231,7 @@ fn run() -> Result<(), RunError> {
             options_events,
             post_events,
         ])
+        .attach(SystemdLaunchNotification {})
         .launch();
     Err(RunError(format!("failed to launch web server: {}", err)))
 }

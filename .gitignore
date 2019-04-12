@@ -4,3 +4,4 @@
 *.iml
 *.yaml
 !schema-example.conf.yaml
+deploy

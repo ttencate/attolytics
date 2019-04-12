@@ -47,6 +47,56 @@ Running
 
         $ ./target/release/attolytics --help
 
+Deploying
+---------
+
+Systemd launch notifications are supported. So to run Attolytics on a Linux
+machine with systemd behind an nginx proxy, a unit file like the following can
+be used:
+
+**`/etc/systemd/system/attolytics.service`**
+
+    [Unit]
+    Description=Attolytics analytics events ingestion service
+    Requires=network.target
+    After=network.target
+
+    [Service]
+    Type=notify
+    NotifyAccess=main
+    WorkingDirectory=/var/www/attolytics.frozenfractal.com
+    ExecStart=/path/to/attolytics --schema /path/to/schema.conf.yaml --db_url postgres://attolytics@%%2Frun%%2Fpostgresql --port 8005 --verbose
+    User=attolytics
+    Group=attolytics
+    Restart=on-failure
+
+    [Install]
+    WantedBy=nginx.service
+
+And the corresponding nginx configuration:
+
+**`/etc/nginx/sites-enabled/attolytics.conf`**
+
+    upstream attolytics {
+      server 127.0.0.1:8005 fail_timeout=0;
+    }
+
+    server {
+      server_name attolytics.example.com;
+      listen 443 ssl;
+
+      location / {
+        proxy_pass http://attolytics;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      ssl_certificate /path/to/fullchain.pem;
+      ssl_certificate_key /path/to/privkey.pem;
+    }
+
 REST API
 --------
 
